@@ -795,6 +795,8 @@
         </div>
       </div>
 
+      </div><!-- end STEP 10 -->
+
       <!-- STEP 11 -->
       <div class="step" data-step="11">
         <h2 class="step-q">Where should we send your Knownly result?</h2>
@@ -1188,45 +1190,51 @@
     }
   });
 
-  btnSubmit.addEventListener('click', async () => {
+  btnSubmit.addEventListener('click', () => {
     if (!validateStep11()) return;
 
     answers.submittedAt = new Date().toISOString();
     computeHints();
 
-    // Save locally first so result.html can open even if backend/Supabase fails.
+    // 1) Save locally first. result.html depends on this exact key.
     try {
       localStorage.setItem('knownlyDiagnosisData', JSON.stringify(answers));
     } catch (e) {
       console.warn('localStorage unavailable', e);
     }
 
+    // 2) Give instant user feedback.
     btnSubmit.disabled = true;
     btnSubmit.textContent = 'Generating your report...';
 
-    // Try to send data to the backend, but never block the user from seeing result.html.
+    // 3) Try backend saving in the background only.
+    // This must never block the user from seeing result.html.
     try {
       if (window.KnownlyAPI && typeof window.KnownlyAPI.submitDiagnosis === 'function') {
-        const result = await window.KnownlyAPI.submitDiagnosis(answers);
-
-        if (result && result.diagnosisId) {
-          answers.diagnosisId = result.diagnosisId;
-          localStorage.setItem('knownlyDiagnosisData', JSON.stringify(answers));
-        }
-      } else {
-        console.warn('KnownlyAPI not found. Data saved only in localStorage.');
+        window.KnownlyAPI.submitDiagnosis(answers)
+          .then((result) => {
+            if (result && result.diagnosisId) {
+              try {
+                const latest = JSON.parse(localStorage.getItem('knownlyDiagnosisData') || '{}');
+                latest.diagnosisId = result.diagnosisId;
+                localStorage.setItem('knownlyDiagnosisData', JSON.stringify(latest));
+              } catch (e) {
+                console.warn('Could not store diagnosisId', e);
+              }
+            }
+          })
+          .catch((err) => {
+            console.warn('Knownly backend save failed, but redirect continues:', err);
+          });
       }
     } catch (err) {
-      console.warn('Knownly backend submission failed. Continuing to result page with local data:', err);
-      try {
-        localStorage.setItem('knownlyApiError', err && err.message ? err.message : 'Backend submission failed');
-      } catch (e) {
-        console.warn('Could not save API error locally', e);
-      }
+      console.warn('Knownly API unavailable, continuing to result page:', err);
     }
 
-    // Always redirect to result page.
-    window.location.href = '/result.html';
+    // 4) Redirect using a relative path so it works on Vercel and local Live Server.
+    setTimeout(() => {
+      window.location.href = 'result.html';
+    }, 350);
   });
 
   // Keyboard: Enter on option buttons
@@ -1240,6 +1248,6 @@
   showStep(1);
 })();
 </script>
-<script src="/knownly-api.js"></script>
+<script src="knownly-api.js"></script>
 </body>
 </html>
